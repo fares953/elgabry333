@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1f3a5f">
+<title>المخزن</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1f3a5f;--acc:#e0a526;--bg:#f3f4f7;--card:#fff;--tx:#1b2330;--mut:#6b7686;--bad:#c0392b;--ok:#1e8a5a;--bd:#dde1e8}
+@media(prefers-color-scheme:dark){:root{--bg:#121820;--card:#1b2430;--tx:#e8ecf2;--mut:#93a0b2;--bd:#2c3846}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Cairo,Tahoma,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:70px}
+header{background:var(--ink);color:#fff;padding:14px 16px;font-weight:900;font-size:20px;display:flex;justify-content:space-between;align-items:center}
+header small{font-weight:400;font-size:12px;opacity:.8}
+main{max-width:760px;margin:auto;padding:14px}
+nav{position:fixed;bottom:0;right:0;left:0;background:var(--card);border-top:1px solid var(--bd);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;padding:12px 2px;font:700 13px Cairo,Tahoma;color:var(--mut)}
+nav button.on{color:var(--ink);box-shadow:inset 0 3px 0 var(--acc)}
+@media(prefers-color-scheme:dark){nav button.on{color:var(--acc)}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:12px}
+.big{font-size:30px;font-weight:900;margin:4px 0}
+.mut{color:var(--mut);font-size:13px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;overflow:auto}
+.tabs button{white-space:nowrap}
+input,select{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx);font:16px Cairo,Tahoma;margin:4px 0 10px}
+button.b{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:11px 16px;font:700 15px Cairo,Tahoma}
+button.b.s{background:none;color:var(--ink);border:1px solid var(--ink)}
+button.b.a{background:var(--acc);color:#1b2330}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd)}
+.row:last-child{border:0}
+.low{color:var(--bad);font-weight:700}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:8px 4px;border-bottom:1px solid var(--bd);text-align:right}
+#reader{width:100%;max-width:420px;margin:auto}
+.hide{display:none}.sr{display:flex;gap:6px;align-items:flex-start}.sr button{margin-top:4px;height:46px}
+</style>
+</head>
+<body>
+<header>المخزن <small id="st"></small></header>
+<main id="app"></main>
+<nav id="nav"></nav>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+let S={items:[],moves:[],ts:0},cfg={url:''},view='dash',dtab=0,sel=null,q='',scanner=null;
+try{S=JSON.parse(localStorage.inv)||S;cfg=JSON.parse(localStorage.cfg)||cfg}catch(e){}
+const qty=id=>S.moves.reduce((a,m)=>m.id==id?a+(m.t=='in'?m.q:-m.q):a,0);
+const f=n=>(Math.round(n*100)/100).toLocaleString('ar-EG');
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const find=c=>S.items.find(i=>i.code==String(c).trim());
+function save(){S.ts=Date.now();localStorage.inv=JSON.stringify(S);push()}
+async function push(){if(!cfg.url)return;try{await fetch(cfg.url+'/inventory.json',{method:'PUT',body:JSON.stringify(S)});$('#st').textContent='متزامن ✓'}catch(e){$('#st').textContent='غير متصل'}}
+async function pull(){if(!cfg.url)return;try{const r=await(await fetch(cfg.url+'/inventory.json')).json();
+ if(r&&r.ts>S.ts){S={items:r.items||[],moves:r.moves||[],ts:r.ts};localStorage.inv=JSON.stringify(S);render()}else if(!r){push()}
+ $('#st').textContent='متزامن ✓'}catch(e){$('#st').textContent='غير متصل'}}
+setInterval(()=>{if(!document.activeElement||document.activeElement.tagName!='INPUT')pull()},10000);
+
+const tabs=[['dash','الرئيسية'],['items','الأصناف'],['move','وارد/صادر'],['card','بطاقة صنف'],['scan','استعلام']];
+function nav(){$('#nav').innerHTML=tabs.map(t=>`<button class="${view==t[0]?'on':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('')}
+function go(v){stopScan();view=v;render()}
+function render(){nav();({dash,items,move,card,scan})[view]()}
+
+function dash(){
+ let cost=0,sale=0;const low=[];
+ S.items.forEach(i=>{const n=qty(i.id);cost+=n*i.cost;sale+=n*i.price;if(n<=(i.min||0))low.push([i,n])});
+ const panels=[
+  ['قيمة المخزون بسعر التكلفة',`<div class="big">${f(cost)} ج</div><div class="mut">${S.items.length} صنف</div>`],
+  ['قيمة المخزون بسعر البيع',`<div class="big">${f(sale)} ج</div>`],
+  ['الربح المتوقع',`<div class="big" style="color:var(--ok)">${f(sale-cost)} ج</div><div class="mut">نسبة الربح ${cost?f((sale-cost)/cost*100):0}%</div>`],
+  ['الأصناف الناقصة',low.length?low.map(([i,n])=>`<div class="row"><span>${i.name}</span><span class="low">${f(n)} (الحد ${i.min||0})</span></div>`).join(''):'<div class="mut">لا توجد أصناف ناقصة</div>']];
+ $('#app').innerHTML=`<div class="tabs">${panels.map((p,i)=>`<button class="b ${i==dtab?'':'s'}" onclick="dtab=${i};dash()">${p[0]}</button>`).join('')}</div>
+ <div class="card"><div class="mut">${panels[dtab][0]}</div>${panels[dtab][1]}</div>
+ <div class="g2"><div class="card"><div class="mut">التكلفة</div><b>${f(cost)}</b></div><div class="card"><div class="mut">البيع</div><b>${f(sale)}</b></div></div>
+ <div class="card"><b>المزامنة بين الأجهزة</b><div class="mut">ألصق رابط Firebase Realtime Database</div>
+ <input id="u" value="${cfg.url||''}" placeholder="https://xxxx-default-rtdb.firebaseio.com" dir="ltr">
+ <button class="b" onclick="cfg.url=$('#u').value.trim().replace(/\\/$/,'');localStorage.cfg=JSON.stringify(cfg);pull().then(push)">حفظ وتزامن</button>
+ <button class="b s" onclick="exp()">نسخة احتياطية</button></div>`}
+function exp(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S)]));a.download='inventory-backup.json';a.click()}
+
+function items(){
+ const l=S.items.filter(i=>(i.name+i.code).toLowerCase().includes(q.toLowerCase()));
+ $('#app').innerHTML=`<input id="q" placeholder="بحث بالاسم أو الكود" value="${q}" oninput="q=this.value;list()">
+ <div class="card"><b>إضافة صنف</b>
+ <input id="n" placeholder="اسم الصنف"><div class="sr"><input id="c" placeholder="الكود / الباركود" inputmode="numeric"><button class="b a" onclick="scanInto(v=>$('#c').value=v)">📷</button></div>
+ <div class="g2"><input id="co" type="number" placeholder="سعر التكلفة"><input id="p" type="number" placeholder="سعر البيع"></div>
+ <div class="g2"><input id="mi" type="number" placeholder="حد الطلب"><input id="op" type="number" placeholder="رصيد أول"></div>
+ <button class="b a" onclick="addItem()">حفظ الصنف</button></div><div class="card" id="lst"></div>`;list();$('#q').focus()}
+function list(){const l=S.items.filter(i=>(i.name+i.code).toLowerCase().includes(q.toLowerCase()));
+ $('#lst').innerHTML=l.map(i=>{const n=qty(i.id);return`<div class="row" onclick="sel='${i.id}';go('card')"><div><b>${i.name}</b><div class="mut">${i.code}</div></div><div class="${n<=(i.min||0)?'low':''}">${f(n)}</div></div>`}).join('')||'<div class="mut">لا توجد أصناف</div>'}
+function addItem(){const n=$('#n').value.trim(),c=$('#c').value.trim();if(!n||!c)return alert('اكتب الاسم والكود');
+ if(find(c))return alert('الكود موجود بالفعل');
+ const i={id:uid(),name:n,code:c,cost:+$('#co').value||0,price:+$('#p').value||0,min:+$('#mi').value||0};S.items.push(i);
+ if(+$('#op').value)S.moves.push({id:i.id,t:'in',q:+$('#op').value,d:Date.now(),n:'رصيد أول'});save();items()}
+
+function move(){
+ $('#app').innerHTML=`<div class="card"><b>تسجيل حركة</b>
+ <select id="mt"><option value="in">وارد</option><option value="out">صادر</option></select>
+ <div class="sr"><input id="mq" list="dl" placeholder="الصنف (اسم أو كود)" oninput="mfound()"><button class="b a" onclick="scanInto(v=>{$('#mq').value=v;mfound()})">📷</button></div><div id="mf" class="mut" style="margin:-4px 0 10px"></div><datalist id="dl">${S.items.map(i=>`<option value="${i.code}">${i.name}</option>`).join('')}</datalist>
+ <input id="mn" type="number" placeholder="الكمية"><input id="mm" placeholder="ملاحظة (اختياري)">
+ <button class="b a" onclick="addMove()">تسجيل</button></div>`}
+function addMove(){const i=find($('#mq').value)||S.items.find(x=>x.name==$('#mq').value.trim());const n=+$('#mn').value;
+ if(!i||!n)return alert('اختار صنف وكمية');const t=$('#mt').value;
+ if(t=='out'&&qty(i.id)<n&&!confirm('الكمية أكبر من الرصيد. تكمل؟'))return;
+ S.moves.push({id:i.id,t,q:n,d:Date.now(),n:$('#mm').value});save();sel=i.id;go('card')}
+
+function card(){
+ const i=S.items.find(x=>x.id==sel);
+ if(!i){$('#app').innerHTML=`<div class="card"><input id="cs" list="dl2" placeholder="ابحث عن صنف" onchange="sel=(find(this.value)||{}).id;card()"><datalist id="dl2">${S.items.map(i=>`<option value="${i.code}">${i.name}</option>`).join('')}</datalist></div>`;return}
+ const ms=S.moves.filter(m=>m.id==i.id).sort((a,b)=>a.d-b.d);let r=0;
+ const rows=ms.map(m=>{r+=m.t=='in'?m.q:-m.q;return`<tr><td>${new Date(m.d).toLocaleDateString('ar-EG')}</td><td>${m.t=='in'?'وارد':'صادر'}</td><td>${f(m.q)}</td><td>${f(r)}</td></tr>`}).reverse().join('');
+ $('#app').innerHTML=`<div class="card"><h3 style="margin:0">${i.name}</h3><div class="mut">كود: ${i.code}</div>
+ <div class="g2" style="margin-top:10px"><div>الرصيد<div class="big">${f(r)}</div></div><div>تكلفة ${f(i.cost)}<br>بيع ${f(i.price)}<br>قيمة الرصيد ${f(r*i.cost)}</div></div>
+ <button class="b s" onclick="editItem('${i.id}')">تعديل</button> <button class="b s" onclick="sel=null;card()">صنف آخر</button> <button class="b s" onclick="if(confirm('حذف الصنف؟')){S.items=S.items.filter(x=>x.id!='${i.id}');S.moves=S.moves.filter(x=>x.id!='${i.id}');sel=null;save();go('items')}">حذف</button></div>
+ <div class="card"><table><tr><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>الرصيد</th></tr>${rows}</table></div>`}
+
+function scan(){
+ $('#app').innerHTML=`<div class="card"><b>استعلام عن السعر بالباركود</b><div class="mut">وجّه الكاميرا على الباركود</div><div id="reader"></div><div id="res"></div>
+ <input id="man" placeholder="أو اكتب الباركود" inputmode="numeric" onchange="show(this.value)"></div>`;
+ try{scanner=new Html5Qrcode('reader');scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:140}},t=>{show(t)},()=>{}).catch(e=>$('#res').innerHTML='<p class="low">تعذر تشغيل الكاميرا. اسمح بالوصول للكاميرا.</p>')}catch(e){}}
+function show(c){const i=find(c);$('#res').innerHTML=i?`<div class="card" style="border-color:var(--acc)"><b>${i.name}</b><div class="big">${f(i.price)} ج</div><div class="mut">الرصيد: ${f(qty(i.id))}</div></div>`:`<p class="low">الباركود ${c} غير مسجل</p>`}
+const esc=s=>String(s).replace(/"/g,'&quot;');
+function mfound(){const v=$('#mq').value,i=find(v)||S.items.find(x=>x.name==v.trim());$('#mf').innerHTML=i?`${i.name} — الرصيد ${f(qty(i.id))}`:(v?'<span class="low">غير مسجل</span>':'')}
+function scanInto(cb){
+ const o=document.createElement('div');
+ o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;padding:16px;display:flex;flex-direction:column;justify-content:center';
+ o.innerHTML='<div class="card"><b>وجّه الكاميرا على الباركود</b><div id="rd2"></div><div id="rerr"></div><button class="b s" id="cx" style="width:100%;margin-top:10px">إلغاء</button></div>';
+ document.body.appendChild(o);
+ let sc,done=false;
+ const close=()=>{(sc?sc.stop():Promise.resolve()).catch(()=>{}).then(()=>o.remove())};
+ $('#cx').onclick=close;
+ try{sc=new Html5Qrcode('rd2');
+  sc.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:140}},t=>{if(done)return;done=true;if(navigator.vibrate)navigator.vibrate(60);cb(t);close()},()=>{})
+   .catch(()=>{$('#rerr').innerHTML='<p class="low">تعذر تشغيل الكاميرا. اسمح بالوصول للكاميرا واكتب الكود يدوي.</p>'})}
+ catch(e){$('#rerr').innerHTML='<p class="low">الكاميرا غير متاحة.</p>'}}
+function editItem(id){const i=S.items.find(x=>x.id==id);if(!i)return;
+ $('#app').innerHTML=`<div class="card"><b>تعديل الصنف</b>
+ <input id="n" value="${esc(i.name)}" placeholder="اسم الصنف">
+ <div class="sr"><input id="c" value="${esc(i.code)}" placeholder="الكود / الباركود"><button class="b a" onclick="scanInto(v=>$('#c').value=v)">📷</button></div>
+ <div class="g2"><div><span class="mut">سعر التكلفة</span><input id="co" type="number" value="${i.cost}"></div><div><span class="mut">سعر البيع</span><input id="p" type="number" value="${i.price}"></div></div>
+ <span class="mut">حد الطلب</span><input id="mi" type="number" value="${i.min||0}">
+ <div class="mut" style="margin-bottom:10px">لتغيير الكمية استخدم وارد/صادر.</div>
+ <button class="b a" onclick="saveEdit('${id}')">حفظ التعديل</button> <button class="b s" onclick="go('card')">إلغاء</button></div>`}
+function saveEdit(id){const i=S.items.find(x=>x.id==id),n=$('#n').value.trim(),c=$('#c').value.trim();
+ if(!n||!c)return alert('اكتب الاسم والكود');
+ const d=find(c);if(d&&d.id!=id)return alert('الكود مستخدم في صنف آخر');
+ i.name=n;i.code=c;i.cost=+$('#co').value||0;i.price=+$('#p').value||0;i.min=+$('#mi').value||0;save();go('card')}
+function stopScan(){if(scanner){scanner.stop().catch(()=>{});scanner=null}}
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();pull();
+</script>
+</body>
+</html>
